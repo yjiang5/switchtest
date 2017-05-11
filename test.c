@@ -2,7 +2,8 @@
 #include <stdio.h>
 #include <errno.h>
 #include <sched.h>
-
+#include <sys/types.h>
+#include <sys/syscall.h>
 
 #define KVM_HYPERCALL \
 	(".byte 0x0f,0x01,0xc1", ".byte 0x0f,0x01,0xd9")
@@ -190,6 +191,7 @@ int test_thread(void *param)
 	int i;
 	struct thread_param *par = param;
 
+	printf("enter thread %x\n", syscall(SYS_gettid));
 	if (pcpu)
 	{
 		cpu_set_t mask;
