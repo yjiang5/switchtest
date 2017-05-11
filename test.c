@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
 #include <sched.h>
 
 
@@ -7,9 +8,25 @@
 	(".byte 0x0f,0x01,0xc1", ".byte 0x0f,0x01,0xd9")
 
 static int in_kvm;
-unsigned long long max=0, min=(unsigned long long)-1, total, yield_max;
+
+struct sched_stats
+{
+	unsigned long logged;
+	unsigned long oflowed;
+	unsigned long long of_max;
+	unsigned long long max;
+	unsigned long *logs;
+	unsigned long logs_len;
+};
+
+struct thread_param
+{
+	struct sched_stats yield;
+	struct sched_stats yielded;
+};
 
 unsigned long long prempt_crazy_noise, max_crazy_noise;
+
 /* We only log the scheduler situation from MAX_NOISE to MAX_NOISE_LOGS */
 #define MAX_NOISE	0x30000
 #define MAX_NOISE_LOG	0x1000000
@@ -52,20 +69,84 @@ static inline unsigned long long rdtscl(void)
 	return  ((low) | (high) << 32);
 }
 
-void dump_result(void)
+int yielded_log = 0x1000;
+int yield_log = 0x1000;
+int yielded_log_of = 0x10000;
+int yield_log_of = 0x10000;
+int yielded_shift = 12;
+int yield_shift = 12;
+int num_threads = 2;
+int pcpu = 33;
+
+void dump_result(struct thread_param *result)
 {
 	int i;
+
 	printf("yield delay status \n");
-	printf("max: %lld min %lld average %lld crazy yield\n", max, min, total/i, yield_max);
+	printf("maxium yield is %lld max overflow %lld\n",
+		result->yield.max, result->yield.of_max);
+	for (i=0; i< (yield_log_of >> 12); i++)
+		if (result->yield.logs[i])
+			printf("yield %llx count %lx\n", i << 12, result->yield.logs[i]);
+
 	printf("Total yielded \n", total_yielded);
-	printf("maxium yielded is %lld crazy yielded is %lld\n", max_crazy_noise, prempt_crazy_noise);
-	for (i=0; i< (MAX_NOISE_LOG >> 12); i++)
-		if (prempt_log[i])
-			printf("yielded %llx count %lx\n", i << 12, prempt_log[i]);
+	printf("maxium yielded is %lld max overflow %lld\n",
+		result->yielded.max, result->yielded.of_max);
+	for (i=0; i< (yielded_log_of >> 12); i++)
+		if (result->yielded.logs[i])
+			printf("yielded %llx count %lx\n", i << 12, result->yield.logs[i]);
 }
 
-#define LOOP_COUNT 0x200000
-int test(int update)
+void dump_results(struct thread_param **params)
+{
+	int i;
+
+	for (i = 0; i < num_threads; i++)
+		dump_result(params[i]);
+}
+
+void log_yielded(struct thread_param *result, unsigned long long delta)
+{
+	if (delta > result->yielded.max)
+		result->yielded.max = delta;
+	if (delta > yielded_log)
+	{
+		/* Align to about 1us, since we don't care for the varia less than 1us */
+		result->yielded.logged ++;
+		if (delta> yielded_log_of)
+		{
+			result->yielded.oflowed++;
+			if (delta> result->yielded.of_max)
+				result->yielded.of_max = delta;
+		}
+		else
+			result->yielded.logs[delta >> yielded_shift] ++;
+	}
+}
+
+/* XXX possibly we can merge with the log_yielded if we are sure they are
+ * totally similar
+ */
+void log_yield(struct thread_param *result, unsigned long long delta)
+{
+	if (delta > result->yield.max)
+		result->yield.max = delta;
+	if (delta > yield_log)
+	{
+		/* Align to about 1us, since we don't care for the varia less than 1us */
+		result->yield.logged ++;
+		if (delta> yield_log_of)
+		{
+			result->yield.oflowed++;
+			if (delta> result->yield.of_max)
+				result->yield.of_max = delta;
+		}
+		else
+			result->yielded.logs[delta >> yield_shift] ++;
+	}
+}
+#define LOOP_COUNT 0x200
+int test(struct thread_param *result)
 {
 	unsigned long stsc, etsc, delta, ptsc;
 
@@ -78,61 +159,136 @@ int test(int update)
 		if (etsc < ptsc)
 		{
 			printf("Hit tscl wrap, exit\n");
-			return -1;
 		}
-		prempt = etsc - ptsc;
+		else {
+			prempt = etsc - ptsc;
+			log_yielded(result, prempt);
+		}
 		/* Assume we are preempted when noise is > MAX_NOISE */
-		if (prempt > MAX_NOISE)
-		{
-			/* Align to about 1us, since we don't care for the varia less than 1us */
-			total_yielded ++;
-			if (prempt > MAX_NOISE_LOG)
-			{
-				prempt_crazy_noise ++;
-				if (prempt > max_crazy_noise)
-					max_crazy_noise = prempt;
-			}
-			else
-				prempt_log[prempt >> 12] ++;
-		}
 		ptsc = etsc;
 	} while ((etsc - stsc ) < LOOP_COUNT);
 
 	stsc = rdtscl();
 	yield_exec();
 	etsc = rdtscl();
-	if (etsc < stsc){
+	if (etsc < stsc)
+	{
 		printf("Hit tscl wrap after yield\n");
 	}
+	else {
+		delta = etsc - stsc;
+		log_yield(result, delta);
+	}
 
-	delta = etsc - stsc;
-	if (!update)
-		return -1;
-	if (delta > max)
-		max = delta;
-	if (delta < min)
-		min = delta;
-	total += delta;
 	return 0;
 }
 
 #define TESTS	0xc0000
 
-int main()
+int test_thread(void *param)
 {
 	int i;
-	check_inkvm();
+	struct thread_param *par = param;
 
-	test(0);
+	if (pcpu)
+	{
+		cpu_set_t mask;
+		pthread_t thread;
+
+		CPU_ZERO(&mask);
+		CPU_SET(pcpu, &mask);
+		thread = pthread_self();
+		if (pthread_setaffinity_np(thread, sizeof(mask), &mask))
+		{
+			printf("set affinity failed\n");
+			return -1;
+		}
+	}
+
 	for (i=0; i < TESTS; i++)
 	{
-		if (test(1))
+		if (test(par))
 		{
 			printf("Something wrong on the test, exit now!\n");
 			return -1;
 		}
-		if (i && max > 40000)
-			yield_max++;
 	}
-	dump_result();
+}
+
+
+int main()
+{
+	int i,result;
+	struct thread_param **params = NULL;
+	pthread_t *threads = NULL;
+
+	check_inkvm();
+	params = calloc(1, sizeof(struct thread_param *) * num_threads);
+	if (!params)
+		return -ENOMEM;
+
+	threads = calloc(1, sizeof(struct pthread_t *) * num_threads);
+	if (!threads)
+		goto error;
+
+	result = 0;
+	for (i = 0; i < num_threads; i++)
+	{
+		struct thread_param *par;
+
+		par = params[i] = calloc(1, sizeof(struct thread_param));
+		if (!par )
+		{
+			printf("Failed to alloc thread param\n");
+			result = -ENOMEM;
+			break;
+		}
+		par->yield.logs_len =  yield_log_of >> 12;
+		par->yielded.logs_len =  yielded_log_of >> 12;
+		par->yield.logs = calloc(par->yield.logs_len, sizeof(unsigned long));
+		if (!par->yield.logs)
+		{
+			printf("Failed to alloc logs buffer\n");
+			result = -ENOMEM;
+			break;
+		}
+
+		par->yielded.logs = calloc(par->yielded.logs_len, sizeof(unsigned long));
+		if (!par->yielded.logs)
+		{
+			printf("Failed to alloc logs buffer\n");
+			result = -ENOMEM;
+			break;
+		}
+		if (pthread_create(&threads[i], NULL, test_thread, par))
+		{
+			printf("Failed to craete the thread\n");
+			result = - ENOSYS;
+			break;
+		}
+	}
+
+	if (result)
+		goto error;
+
+	for (i = 0; i < num_threads; i++)
+		if (threads[i])
+			pthread_join(threads[i], NULL);
+
+	dump_results(params);
+
+error:
+	for (i = 0; i < num_threads; i++)
+		if (params[i]){
+			if (params[i]->yielded.logs)
+				free(params[i]->yielded.logs);
+			if (params[i]->yield.logs)
+				free(params[i]->yield.logs);
+			free(params[i]);
+		}
+	if (params)
+		free(params);
+
+	if (threads)
+		free(threads);
 }
