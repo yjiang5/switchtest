@@ -27,6 +27,7 @@ struct sched_stats
 struct thread_param
 {
 	unsigned long loop_count;
+	unsigned long test_count;
 	struct sched_stats yield;
 	struct sched_stats yielded;
 };
@@ -193,8 +194,6 @@ int test(struct thread_param *result)
 	return 0;
 }
 
-#define TESTS	0x8000
-
 void *test_thread(void *param)
 {
 	int i;
@@ -214,7 +213,7 @@ void *test_thread(void *param)
 		}
 	}
 
-	for (i=0; i < TESTS; i++)
+	for (i=0; i < par->test_count; i++)
 	{
 		if (test(par))
 		{
@@ -234,6 +233,7 @@ int main()
 
 	/* XXX Hardcode now till we make the loop_count more flexible */
 	unsigned long lcounts[2]={0x200, 0x2000000};
+	unsigned long tcounts[2]={0x8000000, 0x800};
 
 	check_inkvm();
 	params = calloc(1, sizeof(struct thread_param *) * num_threads);
@@ -270,6 +270,7 @@ int main()
 		par->yield.logs = calloc(par->yield.logs_len,
 					 sizeof(unsigned long));
 		par->loop_count = lcounts[i];
+		par->test_count = tcounts[i];
 		if (!par->yield.logs)
 		{
 			printf("Failed to alloc logs buffer\n");
