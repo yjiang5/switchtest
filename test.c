@@ -93,14 +93,14 @@ void dump_result(struct thread_param *result)
 		result->yield.max, result->yield.of_max);
 	for (i=0; i< (yield_log_of >> 12); i++)
 		if (result->yield.logs[i])
-			printf("yield %x count %lx\n", i << 12, result->yield.logs[i]);
+			printf("yield %x count %ld\n", i << 12, result->yield.logs[i]);
 
 	printf("Total yielded %lx \n", total_yielded);
 	printf("maxium yielded is %lld max overflow %lld\n",
 		result->yielded.max, result->yielded.of_max);
 	for (i=0; i< (yielded_log_of >> 12); i++)
 		if (result->yielded.logs[i])
-			printf("yielded %x count %lx\n", i << 12, result->yield.logs[i]);
+			printf("yielded %x count %ld\n", i << 12, result->yielded.logs[i]);
 }
 
 void dump_results(struct thread_param **params)
@@ -151,10 +151,10 @@ void log_yield(struct thread_param *result, unsigned long long delta)
 				result->yield.of_max = delta;
 		}
 		else
-			result->yielded.logs[delta >> yield_shift] ++;
+			result->yield.logs[delta >> yield_shift] ++;
 	}
 }
-#define LOOP_COUNT 0x20000
+#define LOOP_COUNT 0x4500000
 int test(struct thread_param *result)
 {
 	unsigned long stsc, etsc, delta, ptsc;
@@ -192,7 +192,7 @@ int test(struct thread_param *result)
 	return 0;
 }
 
-#define TESTS	0xc000
+#define TESTS	0x800
 
 void *test_thread(void *param)
 {
