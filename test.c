@@ -26,6 +26,7 @@ struct sched_stats
 
 struct thread_param
 {
+	unsigned long loop_count;
 	struct sched_stats yield;
 	struct sched_stats yielded;
 };
@@ -154,7 +155,7 @@ void log_yield(struct thread_param *result, unsigned long long delta)
 			result->yield.logs[delta >> yield_shift] ++;
 	}
 }
-#define LOOP_COUNT 0x4500000
+
 int test(struct thread_param *result)
 {
 	unsigned long stsc, etsc, delta, ptsc;
@@ -175,7 +176,7 @@ int test(struct thread_param *result)
 		}
 		/* Assume we are preempted when noise is > MAX_NOISE */
 		ptsc = etsc;
-	} while ((etsc - stsc ) < LOOP_COUNT);
+	} while ((etsc - stsc ) < result->loop_count);
 
 	stsc = rdtscl();
 	yield_exec();
@@ -192,7 +193,7 @@ int test(struct thread_param *result)
 	return 0;
 }
 
-#define TESTS	0x800
+#define TESTS	0x8000
 
 void *test_thread(void *param)
 {
@@ -231,6 +232,9 @@ int main()
 	struct thread_param **params = NULL;
 	pthread_t *threads = NULL;
 
+	/* XXX Hardcode now till we make the loop_count more flexible */
+	unsigned long lcounts[2]={0x200, 0x2000000};
+
 	check_inkvm();
 	params = calloc(1, sizeof(struct thread_param *) * num_threads);
 	if (!params)
@@ -263,7 +267,9 @@ int main()
 		}
 		par->yield.logs_len =  yield_log_of >> 12;
 		par->yielded.logs_len =  yielded_log_of >> 12;
-		par->yield.logs = calloc(par->yield.logs_len, sizeof(unsigned long));
+		par->yield.logs = calloc(par->yield.logs_len,
+					 sizeof(unsigned long));
+		par->loop_count = lcounts[i];
 		if (!par->yield.logs)
 		{
 			printf("Failed to alloc logs buffer\n");
@@ -271,7 +277,8 @@ int main()
 			break;
 		}
 
-		par->yielded.logs = calloc(par->yielded.logs_len, sizeof(unsigned long));
+		par->yielded.logs = calloc(par->yielded.logs_len,
+					   sizeof(unsigned long));
 		if (!par->yielded.logs)
 		{
 			printf("Failed to alloc logs buffer\n");
