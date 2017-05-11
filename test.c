@@ -4,6 +4,10 @@
 #include <sched.h>
 #include <sys/types.h>
 #include <sys/syscall.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <sys/syscall.h>   /* For SYS_xxx definitions */
+
 
 #define KVM_HYPERCALL \
 	(".byte 0x0f,0x01,0xc1", ".byte 0x0f,0x01,0xd9")
@@ -52,6 +56,7 @@ int yield_exec(void)
 			     :
 			     "memory");
 	}
+	return 0;
 }
 
 /* XXX hardcode here, will change to cpuid when begin the KVM task */
@@ -88,14 +93,14 @@ void dump_result(struct thread_param *result)
 		result->yield.max, result->yield.of_max);
 	for (i=0; i< (yield_log_of >> 12); i++)
 		if (result->yield.logs[i])
-			printf("yield %llx count %lx\n", i << 12, result->yield.logs[i]);
+			printf("yield %x count %lx\n", i << 12, result->yield.logs[i]);
 
-	printf("Total yielded \n", total_yielded);
+	printf("Total yielded %lx \n", total_yielded);
 	printf("maxium yielded is %lld max overflow %lld\n",
 		result->yielded.max, result->yielded.of_max);
 	for (i=0; i< (yielded_log_of >> 12); i++)
 		if (result->yielded.logs[i])
-			printf("yielded %llx count %lx\n", i << 12, result->yield.logs[i]);
+			printf("yielded %x count %lx\n", i << 12, result->yield.logs[i]);
 }
 
 void dump_results(struct thread_param **params)
@@ -103,7 +108,10 @@ void dump_results(struct thread_param **params)
 	int i;
 
 	for (i = 0; i < num_threads; i++)
+	{
+		printf("\ndump result %x\n", i);
 		dump_result(params[i]);
+	}
 }
 
 void log_yielded(struct thread_param *result, unsigned long long delta)
@@ -146,7 +154,7 @@ void log_yield(struct thread_param *result, unsigned long long delta)
 			result->yielded.logs[delta >> yield_shift] ++;
 	}
 }
-#define LOOP_COUNT 0x200
+#define LOOP_COUNT 0x20000
 int test(struct thread_param *result)
 {
 	unsigned long stsc, etsc, delta, ptsc;
@@ -184,26 +192,24 @@ int test(struct thread_param *result)
 	return 0;
 }
 
-#define TESTS	0xc0000
+#define TESTS	0xc000
 
-int test_thread(void *param)
+void *test_thread(void *param)
 {
 	int i;
 	struct thread_param *par = param;
+	cpu_set_t mask;
+	pthread_t thread;
 
-	printf("enter thread %x\n", syscall(SYS_gettid));
 	if (pcpu)
 	{
-		cpu_set_t mask;
-		pthread_t thread;
-
 		CPU_ZERO(&mask);
 		CPU_SET(pcpu, &mask);
 		thread = pthread_self();
-		if (pthread_setaffinity_np(thread, sizeof(mask), &mask))
+		if (pthread_setaffinity_np(thread, sizeof(cpu_set_t), &mask))
 		{
 			printf("set affinity failed\n");
-			return -1;
+			return NULL;
 		}
 	}
 
@@ -212,9 +218,10 @@ int test_thread(void *param)
 		if (test(par))
 		{
 			printf("Something wrong on the test, exit now!\n");
-			return -1;
+			return NULL;
 		}
 	}
+	return NULL;
 }
 
 
@@ -229,7 +236,7 @@ int main()
 	if (!params)
 		return -ENOMEM;
 
-	threads = calloc(1, sizeof(struct pthread_t *) * num_threads);
+	threads = calloc(1, sizeof(pthread_t) * num_threads);
 	if (!threads)
 		goto error;
 
@@ -237,6 +244,15 @@ int main()
 	for (i = 0; i < num_threads; i++)
 	{
 		struct thread_param *par;
+		pthread_attr_t attr;
+		int status;
+
+		status = pthread_attr_init(&attr);
+		if (status != 0){
+			printf("error from pthread_attr_init for thread %d\n", i);
+			result = -ENOMEM;
+			break;
+		}
 
 		par = params[i] = calloc(1, sizeof(struct thread_param));
 		if (!par )
@@ -262,7 +278,7 @@ int main()
 			result = -ENOMEM;
 			break;
 		}
-		if (pthread_create(&threads[i], NULL, test_thread, par))
+		if (pthread_create(&threads[i], &attr, test_thread, par))
 		{
 			printf("Failed to craete the thread\n");
 			result = - ENOSYS;
@@ -271,12 +287,23 @@ int main()
 	}
 
 	if (result)
+	{
+		printf("something wrong\n");
 		goto error;
+	}
 
+	usleep(20000);
 	for (i = 0; i < num_threads; i++)
+	{
 		if (threads[i])
-			pthread_join(threads[i], NULL);
-
+		{
+			int jret;
+			printf("Join the thread %llx\n", (unsigned long long)threads[i]);
+			jret = pthread_join(threads[i], NULL);
+			if (jret)
+				printf("jret failed %x\n", jret);
+		}
+	}
 	dump_results(params);
 
 error:
@@ -293,4 +320,5 @@ error:
 
 	if (threads)
 		free(threads);
+	return 0;
 }
