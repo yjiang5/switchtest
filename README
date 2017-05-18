@@ -1,12 +1,16 @@
-The purpose of this code is to test the context switch cost from VM to another VM.
+The purpose of this code is to test the context switch cost on both host side
+and VM2VM.
 
-step 1:
+Two type of threads are created. One type of thread is to emulate a DPDK apps
+that busy loop on something. Another thread is to emulate the packet generator.
+The pkggen thread send the request to the DPDKapp thread for the busy loops
+times, just like a packet generator send the packet to the DPDK application.
+The DPDk busy loop according to input from pktgen thread. Then we check how
+many busy loop requirement is not met, i.e. packet lost, and how many busy loop
+achieved in total.
 
-2 VMs will be created on the VM sharing the same pCPU.
+With this setup, we emulate the elastic DPDK scenario.
 
-A busy loop on VM1 will exit to Hypervisor, to yeild the pCPU to VM2. The VM2 will busy loop some time and yeild back to VM1. Then we check the check the cost of the switch.
-
-step 2:
-Increase to 4 VMs.
-
-
+To do this on the VM environment is a little bit more tricky since the DPDkapps
+will be inside a VM and the pktgen thread will be in host. But I think we can
+still achieve it through some share memory between host/VM.
