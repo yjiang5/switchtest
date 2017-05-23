@@ -53,8 +53,18 @@ struct request {
 
 extern int req_number;
 extern struct request *request_array;
-extern struct request *getRequest(int number);
+inline struct request *getRequest(int number)
+{
+	if (number > req_number)
+		return NULL;
+
+	return &request_array[i];	
+}
+
+
+typedef unsigned long long ttime_t;
 
 #define MAX_APPS 0x4
 
+int num_apps = 2;
 #endif
