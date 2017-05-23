@@ -26,10 +26,11 @@ struct sched_stats
 
 struct thread_param
 {
-	unsigned long loop_count;
-	unsigned long test_count;
-	struct sched_stats yield;
-	struct sched_stats yielded;
+	int id;
+	int pcpu;
+	struct request *req;
+	struct sched_stats *yield;
+	struct sched_stats *preempted;
 };
 
 unsigned long long prempt_crazy_noise, max_crazy_noise;
@@ -77,13 +78,11 @@ static inline unsigned long long rdtscl(void)
 	return  ((low) | (high) << 32);
 }
 
-int yielded_log = 0x1000;
 int yield_log = 0x1000;
 int yielded_log_of = 0x10000;
 int yield_log_of = 0x10000;
 int yielded_shift = 12;
 int yield_shift = 12;
-int num_threads = 2;
 int pcpu = 33;
 
 void dump_result(struct thread_param *result)
@@ -116,72 +115,127 @@ void dump_results(struct thread_param **params)
 	}
 }
 
-void log_yielded(struct thread_param *result, unsigned long long delta)
+ttime_t PREEMPTION_THRESH = 0x1000;
+ttime_t PREEMPTION_LOG_MAX = 0x2000;
+ttime_t PREEMPTION_LOG_SHIFT = 12;
+void log_preempted(struct sched_stats *preempt, ttime_t delta)
 {
-	if (delta > result->yielded.max)
-		result->yielded.max = delta;
-	if (delta > yielded_log)
+	if (delta > preempt->max)
+		preempt->max = delta;
+
+	if (delta > PREEMPTION_THRESH)
 	{
 		/* Align to about 1us, since we don't care for the varia less than 1us */
-		result->yielded.logged ++;
-		if (delta> yielded_log_of)
+		preempt->logged ++;
+		if (delta > MAX_PREEMPTION_LOG)
 		{
-			result->yielded.oflowed++;
-			if (delta> result->yielded.of_max)
-				result->yielded.of_max = delta;
+			preempt->oflowed++;
+			if (delta> preempt->of_max)
+				preempt->of_max = delta;
 		}
 		else
-			result->yielded.logs[delta >> yielded_shift] ++;
+			preempt->logs[delta >> PREEMPTION_LOG_SHIFT] ++;
 	}
 }
 
+ttime_t YIELD_THRESH = 0x1000;
+ttime_t YIELD_LOG_MAX = 0x2000;
+ttime_t YIELD_LOG_SHIFT = 12;
 /* XXX possibly we can merge with the log_yielded if we are sure they are
  * totally similar
  */
-void log_yield(struct thread_param *result, unsigned long long delta)
+void log_yield(struct sched_stats* yield, ttime_t delta)
 {
-	if (delta > result->yield.max)
-		result->yield.max = delta;
-	if (delta > yield_log)
+	if (delta > yield->max)
+		yield->max = delta;
+	if (delta > YIELD_THRESH)
 	{
 		/* Align to about 1us, since we don't care for the varia less than 1us */
-		result->yield.logged ++;
-		if (delta> yield_log_of)
+		yield->logged ++;
+		if (delta> YIELD_LOG_MAX)
 		{
-			result->yield.oflowed++;
-			if (delta> result->yield.of_max)
-				result->yield.of_max = delta;
+			yield->oflowed++;
+			if (delta> yield->of_max)
+				yield->of_max = delta;
 		}
 		else
-			result->yield.logs[delta >> yield_shift] ++;
+			yield->logs[delta >> YIELD_LOG_SHIFT] ++;
 	}
 }
 
-int test(struct thread_param *result)
+int waitReqReady(struct request *req, int sync)
 {
-	unsigned long stsc, etsc, delta, ptsc;
+	if (!req)
+		return -EFAULT;
 
-	ptsc=stsc = rdtscl();
-	do
+	if (req->status != reqs_sent)
+		return -EBUSY;
+
+	return 0;
+}
+
+ttime_t getDeadline(ttime_t now, struct request *req)
+{
+	return now + (req->deadline - req->rtime);
+}
+
+ttime_t getNow(void)
+{
+	return (ttime_t)rdtscl();
+}
+
+int test(struct requet *req, struct sched_stats *prempt,
+	 struct sched_stats *yield)
+{
+	ttime_t stsc, etsc, delta, ptsc;
+	int duration, loops;
+
+	while(waitReqReady());
+
+	oldstat = __sync_val_compare_and_swap(&req->status, reqs_sent,
+			reqs_wip);
+
+	if (oldstat != 	reqs_sent)
+	{
+		printf("initial status changed on the fly, anything wrong?? \n");
+		return -EFAULT;
+	}
+	
+	req->stime = getNow();
+	deadline = getDeadline(req->stime, req);
+	while ((getNow() < deadline) && (req->done < req->req.size))
 	{
 		unsigned long prempt;
 
-		etsc=rdtscl();
-		if (etsc < ptsc)
+		stsc=getNow();
+		execTask(req->req.duration);
+		etsc = getNow();
+
+		if (etsc < stsc)
 		{
-			printf("Hit tscl wrap, exit\n");
+			printf("Hit time wrap, exit\n");
+			return -EFAULT;
 		}
 		else {
 			prempt = etsc - ptsc;
-			log_yielded(result, prempt);
+			if (prempt - req->req.duration > PREEMPTION_THRESH)
+				log_preempted(result, prempt);
 		}
-		/* Assume we are preempted when noise is > MAX_NOISE */
-		ptsc = etsc;
-	} while ((etsc - stsc ) < result->loop_count);
+		req->done++;
+	}
 
-	stsc = rdtscl();
+	req->etime = getNow();
+	oldstat = __sync_val_compare_and_swap(&req->status, reqs_wip,
+			reqs_done);
+	if (oldstat != 	reqs_wip)
+	{
+		printf("status changed on the guest fly, anything wrong?? \n");
+		return -EFAULT;
+	}
+
+	stsc = getNow();
 	yield_exec();
-	etsc = rdtscl();
+	etsc = getNow();
 	if (etsc < stsc)
 	{
 		printf("Hit tscl wrap after yield\n");
@@ -194,13 +248,15 @@ int test(struct thread_param *result)
 	return 0;
 }
 
-void *test_thread(void *param)
+void *app_thread(void *param)
 {
 	int i;
 	struct thread_param *par = param;
+	int pcpu;
 	cpu_set_t mask;
 	pthread_t thread;
 
+	pcpu = par->pcpu;
 	if (pcpu)
 	{
 		CPU_ZERO(&mask);
@@ -213,9 +269,8 @@ void *test_thread(void *param)
 		}
 	}
 
-	for (i=0; i < par->test_count; i++)
-	{
-		if (test(par))
+	while (app_loop) {
+		if (test(par->req, par->preempted, par->yield))
 		{
 			printf("Something wrong on the test, exit now!\n");
 			return NULL;
@@ -224,30 +279,31 @@ void *test_thread(void *param)
 	return NULL;
 }
 
-
-int main()
+/* XXX Hardcode now, can be configuration in future */
+static int getPCpu(int id)
 {
-	int i,result;
-	struct thread_param **params = NULL;
-	pthread_t *threads = NULL;
+	return id + 22;
+}
 
-	/* XXX Hardcode now till we make the loop_count more flexible */
-	unsigned long lcounts[2]={0x200, 0x2000000};
-	unsigned long tcounts[2]={0x8000000, 0x800};
+static struct thread_param **params = NULL;
+static pthread_t *threads = NULL;
+int init_apps(int num_apps)
+{
+	int i,result = 0;
 
-	check_inkvm();
-	params = calloc(1, sizeof(struct thread_param *) * num_threads);
+	params = calloc(1, sizeof(struct thread_param *) * num_apps);
 	if (!params)
 		return -ENOMEM;
 
-	threads = calloc(1, sizeof(pthread_t) * num_threads);
+	threads = calloc(1, sizeof(pthread_t) * num_apps);
 	if (!threads)
-		goto error;
-
-	result = 0;
-	for (i = 0; i < num_threads; i++)
 	{
-		struct thread_param *par;
+		result = -ENOMEM;
+		goto error;
+	}
+
+	for (i = 0; i < num_apps; i++)
+	{
 		pthread_attr_t attr;
 		int status;
 
@@ -265,43 +321,53 @@ int main()
 			result = -ENOMEM;
 			break;
 		}
-		par->yield.logs_len =  yield_log_of >> 12;
-		par->yielded.logs_len =  yielded_log_of >> 12;
-		par->yield.logs = calloc(par->yield.logs_len,
-					 sizeof(unsigned long));
-		par->loop_count = lcounts[i];
-		par->test_count = tcounts[i];
-		if (!par->yield.logs)
-		{
-			printf("Failed to alloc logs buffer\n");
-			result = -ENOMEM;
-			break;
-		}
 
-		par->yielded.logs = calloc(par->yielded.logs_len,
-					   sizeof(unsigned long));
-		if (!par->yielded.logs)
+		par->id = i;
+		par->pcpu = getPCpu(i);	
+		par->req = getRequest(i);
+
+		par->yield.logs_len =  YIELD_LOG_MAX >> YIELD_LOG_SHIFT;
+		par->yield.logs = calloc(par->yield.logs_len,
+					 sizeof(ttime_t));
+		par->preempted.logs_len =  PREEMPTION_LOG_MAX >> PREEMPTION_LOG_SHIFT;
+		par->preempted.logs = calloc(par->preempted.logs_len,
+					   sizeof(ttime_t));
+		if (!par->yielded.logs || !par->preempted.logs)
 		{
 			printf("Failed to alloc logs buffer\n");
 			result = -ENOMEM;
 			break;
 		}
-		if (pthread_create(&threads[i], &attr, test_thread, par))
+		if (pthread_create(&threads[i], &attr, app_thread, par))
 		{
 			printf("Failed to craete the thread\n");
 			result = - ENOSYS;
 			break;
 		}
 	}
-
+error:
 	if (result)
-	{
-		printf("something wrong\n");
-		goto error;
-	}
+		free_apps();
+	return result;
 
-	usleep(20000);
-	for (i = 0; i < num_threads; i++)
+}
+
+void free_apps(void)
+{
+	int i;
+
+	for (i = 0; i < num_apps; i++)
+		if (params[i]){
+			if (params[i]->preempted.logs)
+				free(params[i]->yielded.logs);
+			if (params[i]->yield.logs)
+				free(params[i]->yield.logs);
+			free(params[i]);
+		}
+	if (params)
+		free(params);
+
+	for (i = 0; i < num_apps; i++)
 	{
 		if (threads[i])
 		{
@@ -312,21 +378,7 @@ int main()
 				printf("jret failed %x\n", jret);
 		}
 	}
-	dump_results(params);
-
-error:
-	for (i = 0; i < num_threads; i++)
-		if (params[i]){
-			if (params[i]->yielded.logs)
-				free(params[i]->yielded.logs);
-			if (params[i]->yield.logs)
-				free(params[i]->yield.logs);
-			free(params[i]);
-		}
-	if (params)
-		free(params);
 
 	if (threads)
 		free(threads);
-	return 0;
 }
