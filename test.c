@@ -11,12 +11,14 @@ static struct test_config *tconfs = NULL;
 
 void free_configs(struct test_config *confs)
 {
+	int i;
+
 	if (!confs)
 		return;
 
 	for (i=0; i<confs->num_pktgens; i++)
 		if (confs->configs[i].entries)
-			free(cons->configs[i].entries);
+			free(confs->configs[i].entries);
 	free(confs->configs);
 	free(confs);
 }
@@ -34,7 +36,7 @@ struct test_config *init_configs()
 	confs->num_apps = 2;
 	confs->num_pktgens = 2;
 	confs->configs = calloc(confs->num_pktgens,
-					 sizeof(struct request_config))
+					 sizeof(struct request_config));
 	if (!confs->configs)
 	{
 		free(confs);
@@ -54,7 +56,7 @@ struct test_config *init_configs()
 
 	return confs;
 error:
-	free_configs();
+	free_configs(confs);
 	return NULL;
 }
 
@@ -75,5 +77,6 @@ int main()
 	free_dpdk_apps();
 	free_pktgens();
 	freeRequests();
+	free_configs(tconfs);
 	return 0;
 }
