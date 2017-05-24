@@ -144,7 +144,7 @@ int sendRequest(int sync, int target, struct request_entry *rentry)
 	return 0;
 }
 
-int dumpResult(struct request *req)
+static int dumpResult(struct request *req)
 {
 	if (!req || req->status != reqs_initial)
 		return -1;
@@ -156,7 +156,7 @@ int dumpResult(struct request *req)
 	return 0;
 }
 
-void dumpResults(void)
+void dumpGenResults(void)
 {
 	int i;
 
@@ -169,6 +169,11 @@ void dumpResults(void)
 			dumpResult(req);
 		}
 	}
+}
+
+void freeRequests(void)
+{
+	free(request_array);
 }
 
 int initRequests(int number)
@@ -302,29 +307,39 @@ error:
 	return result;
 }
 
-void free_pktgens(void)
+void wait_pktgen_done(void)
 {
-	int i, num_pktgens = num_pktgens_initiated;
+	int i, num_apps = num_pktgens_initiated;
 
-	for (i = 0; i < num_pktgens; i++)
-		if (params[i])
-			free(params[i]);
+	if (!threads)
+		return;
 
-	if (params)
-		free(params);
-
-	for (i = 0; i < num_pktgens; i++)
+	for (i = 0; i < num_apps; i++)
 	{
 		if (threads[i])
 		{
 			int jret;
-
-			printf("Join the pktgen thread %llx\n", (unsigned long long)threads[i]);
+			printf("Join the packet gen thread %llx\n",
+				(unsigned long long)threads[i]);
 			jret = pthread_join(threads[i], NULL);
 			if (jret)
 				printf("jret failed %x\n", jret);
 		}
 	}
-	if (threads)
-		free(threads);
+	free(threads);
+	threads = NULL;
+	num_pktgens_initiated = 0;
+}
+
+void free_pktgens(void)
+{
+	int i;
+
+	wait_pktgen_done();
+	if (params)
+	{
+		for (i = 0; i < num_pktgens_initiated; i++)
+			free(params[i]);
+		free(params);
+	}
 }

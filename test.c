@@ -4,13 +4,6 @@
 
 #include "test.h"
 
-struct test_config
-{
-	int num_apps;
-	int num_pktgens;
-	struct request_config *configs;
-};
-
 static struct test_config *tconfs = NULL;
 /* We hardcode everything now, we can make it configured through
  * file in future when we do more complex testing
@@ -54,7 +47,7 @@ struct test_config *init_configs()
 		struct request_config *rconf = &confs->configs[i];
 		rconf->entnum = 1;
 		rconf->entries = (struct request_entry *)entry;
-		entry += sizeof(struct request_entry) * 1;
+		entry += sizeof(struct request_entry) * rconf->entnum;
 	}
 
 	return confs;
@@ -64,10 +57,18 @@ int main()
 {
 	tconfs = init_configs();
 	initRequests(2);
+	app_loop = gen_loop = 1;
 	init_dpdk_apps(tconfs->num_apps);
 	init_pktgens(tconfs->num_pktgens, tconfs->configs);
-	sleep (20);
+	sleep(2);
+	app_loop = gen_loop = 0;
+	/* We stop the generator first */
+	wait_pktgen_done();
+	wait_dpdk_done();
+	dumpAppResults();
+	dumpGenResults();
 	free_dpdk_apps();
 	free_pktgens();
+	freeRequests();
 	return 0;
 }

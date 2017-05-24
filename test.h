@@ -33,6 +33,14 @@ struct request_config
 	int entnum;
 	struct request_entry *entries;
 };
+
+struct test_config
+{
+	int num_apps;
+	int num_pktgens;
+	struct request_config *configs;
+};
+
 /*
  * This is a producer program to emulate the work of a packet generator.
  * It tries to feed packet requirement to the DPDKapp thread.
@@ -63,6 +71,11 @@ extern int req_number;
 extern struct request *request_array;
 extern struct request *getRequest(int number);
 extern int initRequests(int number);
+extern void freeRequests(void);
+void dumpGenResults(void);
+void dumpAppResults(void);
+void wait_dpdk_done(void);
+void wait_pktgen_done(void);
 
 int init_dpdk_apps(int num_apps);
 void free_dpdk_apps(void);

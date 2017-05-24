@@ -31,6 +31,9 @@ struct thread_param
 	struct sched_stats *preempted;
 };
 
+static struct thread_param **params = NULL;
+static pthread_t *threads = NULL;
+
 unsigned long long prempt_crazy_noise, max_crazy_noise;
 
 /* We only log the scheduler situation from MAX_NOISE to MAX_NOISE_LOGS */
@@ -74,7 +77,7 @@ ttime_t YIELD_LOG_SHIFT = 12;
 ttime_t PREEMPTION_THRESH = 0x1000;
 ttime_t PREEMPTION_LOG_MAX = 0x2000;
 ttime_t PREEMPTION_LOG_SHIFT = 12;
-void dump_result(struct thread_param *result)
+static void dumpResult(struct thread_param *result)
 {
 	int i;
 
@@ -94,14 +97,14 @@ void dump_result(struct thread_param *result)
 }
 
 static int num_apps_initiated = 0;
-void dump_results(struct thread_param **params)
+void dumpAppResults(void)
 {
 	int i;
 
 	for (i = 0; i < num_apps_initiated; i++)
 	{
 		printf("\ndump result %x\n", i);
-		dump_result(params[i]);
+		dumpResult(params[i]);
 	}
 }
 
@@ -270,9 +273,6 @@ static int getPCpu(int id)
 	return id + 22;
 }
 
-static struct thread_param **params = NULL;
-static pthread_t *threads = NULL;
-
 int init_dpdk_apps(int num_apps)
 {
 	int i,result = 0;
@@ -346,9 +346,12 @@ error:
 	return result;
 }
 
-void free_dpdk_apps(void)
+void wait_dpdk_done(void)
 {
 	int i, num_apps = num_apps_initiated;
+
+	if (!threads)
+		return;
 
 	for (i = 0; i < num_apps; i++)
 	{
@@ -362,10 +365,16 @@ void free_dpdk_apps(void)
 				printf("jret failed %x\n", jret);
 		}
 	}
+	free(threads);
+	threads = NULL;
+	num_apps_initiated = 0;
+}
 
-	if (threads)
-		free(threads);
-
+void free_dpdk_apps(void)
+{
+	int i, num_apps = num_apps_initiated;
+	/* In case thread is not terminated yet */
+	wait_dpdk_done();
 	for (i = 0; i < num_apps; i++)
 		if (params[i]){
 			if (params[i]->preempted->logs)
