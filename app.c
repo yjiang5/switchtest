@@ -301,7 +301,9 @@ int init_dpdk_apps(int num_apps)
 			break;
 		}
 
-		par = params[i] = calloc(1, sizeof(struct thread_param));
+		par = params[i] = calloc(1,
+			 sizeof(struct thread_param)+
+				 2*sizeof(struct sched_stats));
 		if (!par )
 		{
 			printf("Failed to alloc thread param\n");
@@ -309,6 +311,10 @@ int init_dpdk_apps(int num_apps)
 			break;
 		}
 
+		par->yield = (struct sched_stats *)(
+			(void *)par + sizeof(struct thread_param));
+		par->preempted= (struct sched_stats *)(
+			(void *)(par->yield) + sizeof(struct thread_param));
 		par->id = i;
 		par->pcpu = getPCpu(i);	
 		par->req = getRequest(i);

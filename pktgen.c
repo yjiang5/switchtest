@@ -186,6 +186,7 @@ int initRequests(int number)
 	if (!request_array)
 		return -ENOMEM;
 
+	req_number = number;
 	for (i=0; i < number; i++)
 	{
 		struct request *request = getRequest(i);
