@@ -9,6 +9,8 @@ enum req_status {
 	reqs_done,
 };
 
+extern char * req_status_string[];
+
 struct req_statstic {
 	unsigned long long t_reqs;
 	unsigned long long t_missed;
@@ -24,6 +26,12 @@ struct request_entry
 {
 	int size;
 	int duration;
+};
+
+struct request_config
+{
+	int entnum;
+	struct request_entry *entries;
 };
 /*
  * This is a producer program to emulate the work of a packet generator.
@@ -48,23 +56,41 @@ struct request {
 	/* The time the DPDKApp finish the handling */
 	unsigned long long etime;
 
-	struct req_stats stats;
+	struct req_statstic stats;
 };
 
 extern int req_number;
 extern struct request *request_array;
-inline struct request *getRequest(int number)
-{
-	if (number > req_number)
-		return NULL;
+extern struct request *getRequest(int number);
+extern int initRequests(int number);
 
-	return &request_array[i];	
-}
-
+int init_dpdk_apps(int num_apps);
+void free_dpdk_apps(void);
+int init_pktgens(int num_pktgens, struct request_config *config);
+void free_pktgens(void);
+extern int gen_loop;
+extern int app_loop;
 
 typedef unsigned long long ttime_t;
 
+static inline unsigned long long rdtscl(void)
+{
+	unsigned long low, high;
+
+	asm volatile("rdtsc" : "=a" (low), "=d" (high));
+
+	return  ((low) | (high) << 32);
+}
+
+static inline ttime_t getNow(void)
+{
+	return (ttime_t)rdtscl();
+}
+
+
 #define MAX_APPS 0x4
 
-int num_apps = 2;
+#define KVM_HYPERCALL \
+	(".byte 0x0f,0x01,0xc1", ".byte 0x0f,0x01,0xd9")
+
 #endif

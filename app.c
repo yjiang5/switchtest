@@ -8,9 +8,7 @@
 #include <unistd.h>
 #include <sys/syscall.h>   /* For SYS_xxx definitions */
 
-
-#define KVM_HYPERCALL \
-	(".byte 0x0f,0x01,0xc1", ".byte 0x0f,0x01,0xd9")
+#include "test.h"
 
 static int in_kvm;
 
@@ -69,55 +67,44 @@ int check_inkvm(void)
 	return 0;
 }
 
-static inline unsigned long long rdtscl(void)
-{
-	unsigned long low, high;
+ttime_t YIELD_THRESH = 0x1000;
+ttime_t YIELD_LOG_MAX = 0x2000;
+ttime_t YIELD_LOG_SHIFT = 12;
 
-	asm volatile("rdtsc" : "=a" (low), "=d" (high));
-
-	return  ((low) | (high) << 32);
-}
-
-int yield_log = 0x1000;
-int yielded_log_of = 0x10000;
-int yield_log_of = 0x10000;
-int yielded_shift = 12;
-int yield_shift = 12;
-int pcpu = 33;
-
+ttime_t PREEMPTION_THRESH = 0x1000;
+ttime_t PREEMPTION_LOG_MAX = 0x2000;
+ttime_t PREEMPTION_LOG_SHIFT = 12;
 void dump_result(struct thread_param *result)
 {
 	int i;
 
 	printf("yield delay status \n");
 	printf("maxium yield is %lld max overflow %lld\n",
-		result->yield.max, result->yield.of_max);
-	for (i=0; i< (yield_log_of >> 12); i++)
-		if (result->yield.logs[i])
-			printf("yield %x count %ld\n", i << 12, result->yield.logs[i]);
+		result->yield->max, result->yield->of_max);
+	for (i=0; i< (YIELD_LOG_MAX>> 12); i++)
+		if (result->yield->logs[i])
+			printf("yield %x count %ld\n", i << 12, result->yield->logs[i]);
 
-	printf("Total yielded %lx \n", total_yielded);
-	printf("maxium yielded is %lld max overflow %lld\n",
-		result->yielded.max, result->yielded.of_max);
-	for (i=0; i< (yielded_log_of >> 12); i++)
-		if (result->yielded.logs[i])
-			printf("yielded %x count %ld\n", i << 12, result->yielded.logs[i]);
+	printf("Total preempted %lx \n", result->preempted->logged);
+	printf("maxium preempted is %lld max overflow %lld\n",
+		result->preempted->max, result->preempted->of_max);
+	for (i=0; i< (PREEMPTION_LOG_MAX >> 12); i++)
+		if (result->preempted->logs[i])
+			printf("preempted %x count %ld\n", i << 12, result->preempted->logs[i]);
 }
 
+static int num_apps_initiated = 0;
 void dump_results(struct thread_param **params)
 {
 	int i;
 
-	for (i = 0; i < num_threads; i++)
+	for (i = 0; i < num_apps_initiated; i++)
 	{
 		printf("\ndump result %x\n", i);
 		dump_result(params[i]);
 	}
 }
 
-ttime_t PREEMPTION_THRESH = 0x1000;
-ttime_t PREEMPTION_LOG_MAX = 0x2000;
-ttime_t PREEMPTION_LOG_SHIFT = 12;
 void log_preempted(struct sched_stats *preempt, ttime_t delta)
 {
 	if (delta > preempt->max)
@@ -127,7 +114,7 @@ void log_preempted(struct sched_stats *preempt, ttime_t delta)
 	{
 		/* Align to about 1us, since we don't care for the varia less than 1us */
 		preempt->logged ++;
-		if (delta > MAX_PREEMPTION_LOG)
+		if (delta > PREEMPTION_LOG_MAX)
 		{
 			preempt->oflowed++;
 			if (delta> preempt->of_max)
@@ -138,9 +125,6 @@ void log_preempted(struct sched_stats *preempt, ttime_t delta)
 	}
 }
 
-ttime_t YIELD_THRESH = 0x1000;
-ttime_t YIELD_LOG_MAX = 0x2000;
-ttime_t YIELD_LOG_SHIFT = 12;
 /* XXX possibly we can merge with the log_yielded if we are sure they are
  * totally similar
  */
@@ -179,18 +163,20 @@ ttime_t getDeadline(ttime_t now, struct request *req)
 	return now + (req->deadline - req->rtime);
 }
 
-ttime_t getNow(void)
+static int execTask(ttime_t duration)
 {
-	return (ttime_t)rdtscl();
+	while (duration)
+		duration--;
+	return 0;
 }
 
-int test(struct requet *req, struct sched_stats *prempt,
+int test(struct request *req, struct sched_stats *prempt,
 	 struct sched_stats *yield)
 {
-	ttime_t stsc, etsc, delta, ptsc;
-	int duration, loops;
+	ttime_t stsc, etsc, delta, deadline;
+	int oldstat;
 
-	while(waitReqReady());
+	while(waitReqReady(req, 0));
 
 	oldstat = __sync_val_compare_and_swap(&req->status, reqs_sent,
 			reqs_wip);
@@ -205,8 +191,6 @@ int test(struct requet *req, struct sched_stats *prempt,
 	deadline = getDeadline(req->stime, req);
 	while ((getNow() < deadline) && (req->done < req->req.size))
 	{
-		unsigned long prempt;
-
 		stsc=getNow();
 		execTask(req->req.duration);
 		etsc = getNow();
@@ -217,9 +201,9 @@ int test(struct requet *req, struct sched_stats *prempt,
 			return -EFAULT;
 		}
 		else {
-			prempt = etsc - ptsc;
-			if (prempt - req->req.duration > PREEMPTION_THRESH)
-				log_preempted(result, prempt);
+			delta = etsc - stsc;
+			if ((delta - req->req.duration) > PREEMPTION_THRESH)
+				log_preempted(prempt, delta);
 		}
 		req->done++;
 	}
@@ -242,15 +226,16 @@ int test(struct requet *req, struct sched_stats *prempt,
 	}
 	else {
 		delta = etsc - stsc;
-		log_yield(result, delta);
+		log_yield(yield, delta);
 	}
 
 	return 0;
 }
 
+int app_loop;
+
 void *app_thread(void *param)
 {
-	int i;
 	struct thread_param *par = param;
 	int pcpu;
 	cpu_set_t mask;
@@ -287,7 +272,8 @@ static int getPCpu(int id)
 
 static struct thread_param **params = NULL;
 static pthread_t *threads = NULL;
-int init_apps(int num_apps)
+
+int init_dpdk_apps(int num_apps)
 {
 	int i,result = 0;
 
@@ -306,6 +292,7 @@ int init_apps(int num_apps)
 	{
 		pthread_attr_t attr;
 		int status;
+		struct thread_param *par = NULL;
 
 		status = pthread_attr_init(&attr);
 		if (status != 0){
@@ -326,13 +313,13 @@ int init_apps(int num_apps)
 		par->pcpu = getPCpu(i);	
 		par->req = getRequest(i);
 
-		par->yield.logs_len =  YIELD_LOG_MAX >> YIELD_LOG_SHIFT;
-		par->yield.logs = calloc(par->yield.logs_len,
+		par->yield->logs_len =  YIELD_LOG_MAX >> YIELD_LOG_SHIFT;
+		par->yield->logs = calloc(par->yield->logs_len,
 					 sizeof(ttime_t));
-		par->preempted.logs_len =  PREEMPTION_LOG_MAX >> PREEMPTION_LOG_SHIFT;
-		par->preempted.logs = calloc(par->preempted.logs_len,
+		par->preempted->logs_len =  PREEMPTION_LOG_MAX >> PREEMPTION_LOG_SHIFT;
+		par->preempted->logs = calloc(par->preempted->logs_len,
 					   sizeof(ttime_t));
-		if (!par->yielded.logs || !par->preempted.logs)
+		if (!par->yield->logs || !par->preempted->logs)
 		{
 			printf("Failed to alloc logs buffer\n");
 			result = -ENOMEM;
@@ -347,32 +334,23 @@ int init_apps(int num_apps)
 	}
 error:
 	if (result)
-		free_apps();
+		free_dpdk_apps();
+	else
+		num_apps_initiated = num_apps;
 	return result;
-
 }
 
-void free_apps(void)
+void free_dpdk_apps(void)
 {
-	int i;
-
-	for (i = 0; i < num_apps; i++)
-		if (params[i]){
-			if (params[i]->preempted.logs)
-				free(params[i]->yielded.logs);
-			if (params[i]->yield.logs)
-				free(params[i]->yield.logs);
-			free(params[i]);
-		}
-	if (params)
-		free(params);
+	int i, num_apps = num_apps_initiated;
 
 	for (i = 0; i < num_apps; i++)
 	{
 		if (threads[i])
 		{
 			int jret;
-			printf("Join the thread %llx\n", (unsigned long long)threads[i]);
+			printf("Join the app thread %llx\n",
+				(unsigned long long)threads[i]);
 			jret = pthread_join(threads[i], NULL);
 			if (jret)
 				printf("jret failed %x\n", jret);
@@ -381,4 +359,15 @@ void free_apps(void)
 
 	if (threads)
 		free(threads);
+
+	for (i = 0; i < num_apps; i++)
+		if (params[i]){
+			if (params[i]->preempted->logs)
+				free(params[i]->preempted->logs);
+			if (params[i]->yield->logs)
+				free(params[i]->yield->logs);
+			free(params[i]);
+		}
+	if (params)
+		free(params);
 }
