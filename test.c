@@ -48,8 +48,8 @@ struct test_config *init_configs()
 	if (!confs)
 		return NULL;
 
-	confs->num_apps = 2;
-	confs->num_pktgens = 2;
+	confs->num_apps = APPS_NUM;
+	confs->num_pktgens = PKTG_NUM;
 	confs->configs = calloc(confs->num_pktgens,
 					 sizeof(struct request_config));
 	if (!confs->configs)
@@ -82,7 +82,7 @@ int main()
 {
 	pthread_mutex_init(&printf_mutex, NULL);
 	tconfs = init_configs();
-	initRequests(2);
+	initRequests(PKTG_NUM);
 	app_loop = gen_loop = 1;
 	init_dpdk_apps(tconfs->num_apps);
 	init_pktgens(tconfs->num_pktgens, tconfs->configs);

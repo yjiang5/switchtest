@@ -16,6 +16,8 @@ struct req_statstic {
 	unsigned long long t_missed;
 };
 
+#define APPS_NUM	4
+#define PKTG_NUM	4
 /*
  * This represent one burst of packet sent out from the TG
  * Although we can simply specify the duration in total (i.e. one prameter
