@@ -67,9 +67,12 @@ struct test_config *init_configs()
 		if (!entry)
 			goto error;
 		rconf->entries = (struct request_entry *)entry;
-		/* Hardcode the config now */
-		rconf->entries[0].size = 1;
-		rconf->entries[0].duration = 100;
+		/* Hardcode the config now, assume it takes 200 cycle,
+		 * which is similar to 64 byte packet, for the packet handling
+		 * and we have 128 burst flow.
+		 */
+		rconf->entries[0].size = 128;
+		rconf->entries[0].duration = 200;
 	}
 
 	return confs;
