@@ -93,10 +93,10 @@ struct request *getRequest(int number)
 
 static int dumpResult(struct request *req)
 {
-	if (!req || req->status != reqs_initial)
+	tprintf("\nreq %d status %d\n", req->id, req->status);
+	if (!req)
 		return -1;
 
-	tprintf("\nreq %d\n", req->id);
 	tprintf("sent request in total %lld missed %lld\n", req->stats.t_reqs,
 		req->stats.t_missed);
 
