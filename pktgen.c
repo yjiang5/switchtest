@@ -185,8 +185,7 @@ int sendRequest(int sync, int target, struct request_entry *rentry)
 	if (req->status == reqs_setup)
 		return -EEXIST;
 
-	while (waitReqFinish(req, sync) && gen_loop)
-		delay();
+	while (waitReqFinish(req, sync) && gen_loop) {}
 
 	if (!gen_loop)
 		return 0;
