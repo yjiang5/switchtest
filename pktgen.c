@@ -222,12 +222,28 @@ int sendRequest(int sync, int target, struct request_entry *rentry)
 void *generator_thread(void *param)
 {
 	struct thread_param *par = param;
-	int i=0;
+	int i=0, pcpu;
+	cpu_set_t mask;
 	struct request_config *config;
 	struct request *req;
 
 	if (!par)
 		return NULL;
+
+	pcpu = par->pCPU;
+	if (pcpu)
+	{
+		pthread_t thread;
+
+		CPU_ZERO(&mask);
+		CPU_SET(pcpu, &mask);
+		thread = pthread_self();
+		if (pthread_setaffinity_np(thread, sizeof(cpu_set_t), &mask))
+		{
+			tprintf("set affinity failed\n");
+			return NULL;
+		}
+	}
 
 	config = par->config;
 	req = par->req;
