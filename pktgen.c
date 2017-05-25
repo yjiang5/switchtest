@@ -37,7 +37,6 @@ int logRequest(struct request *req)
 {
 	int oldstat;
 
-	tprintf("logRequest %d\n", req->id);
 	if (!req || req->status != reqs_done)
 		return -EFAULT;
 
@@ -189,11 +188,14 @@ int sendRequest(int sync, int target, struct request_entry *rentry)
 	while (waitReqFinish(req, sync) && gen_loop)
 		delay();
 
+	if (!gen_loop)
+		return 0;
+
 	oldstat = __sync_val_compare_and_swap(&req->status, reqs_initial,
 			reqs_setup);
 	if (oldstat != reqs_initial)
 	{
-		tprintf("initial status changed on the fly, anything wrong?? \n");
+		tprintf("initial status changed on the fly to %d, anything wrong?? \n", oldstat);
 		return -EFAULT;
 	}
 
@@ -238,7 +240,6 @@ void *generator_thread(void *param)
 
 		entry = &config->entries[i];
 		sendRequest(0, par->id, entry);
-		sleep(1);
 		waitReqFinish(req, 1);
 	}
 

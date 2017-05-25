@@ -180,13 +180,15 @@ int test(struct request *req, struct sched_stats *prempt,
 	int oldstat;
 
 	while(waitReqReady(req, 0) && app_loop);
+	if (!app_loop)
+		return 0;
 
 	oldstat = __sync_val_compare_and_swap(&req->status, reqs_sent,
 			reqs_wip);
 
 	if (oldstat != 	reqs_sent)
 	{
-		tprintf("initial status changed on the fly, anything wrong?? \n");
+		tprintf("receiving status changed on the fly to %d, anything wrong?? \n", oldstat);
 		return -EFAULT;
 	}
 	
