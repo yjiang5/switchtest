@@ -14,3 +14,4 @@ test : ${OBJS}
 
 clean:
 	rm *.o
+	rm test
