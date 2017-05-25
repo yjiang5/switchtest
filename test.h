@@ -47,7 +47,10 @@ struct test_config
  */
 struct request {
 	int id;
-	int status;
+	/* The update to this function is through atomic function and hope
+	 * that's memory barrier safe
+	 */
+	volatile int status;
 	/* request information */
 	struct request_entry req;
 	/* How many has been done */
@@ -81,8 +84,9 @@ int init_dpdk_apps(int num_apps);
 void free_dpdk_apps(void);
 int init_pktgens(int num_pktgens, struct request_config *config);
 void free_pktgens(void);
-extern int gen_loop;
-extern int app_loop;
+extern volatile int gen_loop;
+extern volatile int app_loop;
+extern int tprintf(const char *format, ...);
 
 typedef unsigned long long ttime_t;
 

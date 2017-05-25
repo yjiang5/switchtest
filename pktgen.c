@@ -27,7 +27,7 @@ void delay(void)
 
 static void reqStatusWrong(int rold, int eold, int new)
 {
-	printf("old staus is %s while expected change from %s to %s\n",
+	tprintf("old staus is %s while expected change from %s to %s\n",
 		req_status_string[rold],
 		req_status_string[eold],
 		req_status_string[new]);
@@ -37,7 +37,8 @@ int logRequest(struct request *req)
 {
 	int oldstat;
 
-	if (!req || !req->status != reqs_done)
+	tprintf("logRequest %d\n", req->id);
+	if (!req || req->status != reqs_done)
 		return -EFAULT;
 
 	req->stats.t_reqs += req->req.size;
@@ -72,8 +73,6 @@ int waitReqFinish(struct request *req, int sync)
 	{
 		if (!sync)
 			return -EBUSY;
-		else
-			delay();
 	}	
 
 	/* logRequest will change the state to be reqs_initial */
@@ -92,65 +91,14 @@ struct request *getRequest(int number)
 	return &request_array[number];	
 }
 
-/* sync:
- * 1: will wait till the consumer finished the previous record
- * 0: return falure if previous request is not finished yet
- *
- * target: the DPDK app
- * size: how many request
- * cost: how long for each request
- */
-int sendRequest(int sync, int target, struct request_entry *rentry)
-{
-	struct request *req = getRequest(target);
-	int oldstat;
-	unsigned long long htime;
-
-	if (!req)
-		return -EFAULT;
-
-	/* Why someone else is trying the setup now? */
-	if (req->status == reqs_setup)
-		return -EEXIST;
-
-	while (!waitReqFinish(req, sync))
-		delay();
-
-	oldstat = __sync_val_compare_and_swap(&req->status, reqs_initial,
-			reqs_setup);
-	if (oldstat != reqs_initial)
-	{
-		printf("initial status changed on the fly, anything wrong?? \n");
-		return -EFAULT;
-	}
-
-	req->stime = req->etime = 0;
-	req->done = 0;
-        req->req.size = rentry->size;
-        req->req.duration = rentry->duration;
-	/* XXX will htime before getNow() really make rtime/deadline
-	 * more accurate?
-	 */
-	htime = req->req.size * rentry->duration;
-	req->rtime = getNow();
-	req->deadline = req->rtime + htime;
-	oldstat = __sync_val_compare_and_swap(&req->status, reqs_setup, reqs_sent);
-	if (oldstat != reqs_setup)
-	{
-		reqStatusWrong(oldstat, reqs_setup, reqs_sent);
-		return -EFAULT;
-	}
-
-	return 0;
-}
 
 static int dumpResult(struct request *req)
 {
 	if (!req || req->status != reqs_initial)
 		return -1;
 
-	printf("\nreq %d\n", req->id);
-	printf("sent request in total %lld missed %lld\n", req->stats.t_reqs,
+	tprintf("\nreq %d\n", req->id);
+	tprintf("sent request in total %lld missed %lld\n", req->stats.t_reqs,
 		req->stats.t_missed);
 
 	return 0;
@@ -215,7 +163,59 @@ struct thread_param
 	struct request *req;
 };
 
-int gen_loop;
+volatile int gen_loop;
+
+/* sync:
+ * 1: will wait till the consumer finished the previous record
+ * 0: return falure if previous request is not finished yet
+ *
+ * target: the DPDK app
+ * size: how many request
+ * cost: how long for each request
+ */
+int sendRequest(int sync, int target, struct request_entry *rentry)
+{
+	struct request *req = getRequest(target);
+	int oldstat;
+	unsigned long long htime;
+
+	if (!req)
+		return -EFAULT;
+
+	/* Why someone else is trying the setup now? */
+	if (req->status == reqs_setup)
+		return -EEXIST;
+
+	while (waitReqFinish(req, sync) && gen_loop)
+		delay();
+
+	oldstat = __sync_val_compare_and_swap(&req->status, reqs_initial,
+			reqs_setup);
+	if (oldstat != reqs_initial)
+	{
+		tprintf("initial status changed on the fly, anything wrong?? \n");
+		return -EFAULT;
+	}
+
+	req->stime = req->etime = 0;
+	req->done = 0;
+        req->req.size = rentry->size;
+        req->req.duration = rentry->duration;
+	/* XXX will htime before getNow() really make rtime/deadline
+	 * more accurate?
+	 */
+	htime = req->req.size * rentry->duration;
+	req->rtime = getNow();
+	req->deadline = req->rtime + htime;
+	oldstat = __sync_val_compare_and_swap(&req->status, reqs_setup, reqs_sent);
+	if (oldstat != reqs_setup)
+	{
+		reqStatusWrong(oldstat, reqs_setup, reqs_sent);
+		return -EFAULT;
+	}
+
+	return 0;
+}
 
 void *generator_thread(void *param)
 {
@@ -232,11 +232,13 @@ void *generator_thread(void *param)
 	while (gen_loop) {
 		struct request_entry *entry;
 
-		if (i++ == config->entnum)
+		i++;
+		if (i == config->entnum)
 			i = 0;
 
 		entry = &config->entries[i];
 		sendRequest(0, par->id, entry);
+		sleep(1);
 		waitReqFinish(req, 1);
 	}
 
@@ -246,7 +248,8 @@ void *generator_thread(void *param)
 /* XXX Hardcode now, can be configuration in future */
 static int getPCpu(int id)
 {
-	return id + 32;
+	//return id + 32;
+	return 32;
 }
 
 static struct thread_param **params = NULL;
@@ -276,25 +279,25 @@ int init_pktgens(int num_pktgens, struct request_config *config)
 
 		status = pthread_attr_init(&attr);
 		if (status != 0){
-			printf("error from pthread_attr_init for thread %d\n", i);
+			tprintf("error from pthread_attr_init for thread %d\n", i);
 			result = -ENOMEM;
 			break;
 		}
 		par = params[i] = calloc(1, sizeof(struct thread_param));
 		if (!par )
 		{
-			printf("Failed to alloc thread param\n");
+			tprintf("Failed to alloc thread param\n");
 			result = -ENOMEM;
 			break;
 		}
 		par->id = i;
 		par->pCPU = getPCpu(i);	
 		par->req = getRequest(i);
-		par->config = config;
+		par->config = &config[i];
 
 		if (pthread_create(&threads[i], &attr, generator_thread, par))
 		{
-			printf("Failed to craete the thread\n");
+			tprintf("Failed to craete the thread\n");
 			result = - ENOSYS;
 			break;
 		}
@@ -319,11 +322,11 @@ void wait_pktgen_done(void)
 		if (threads[i])
 		{
 			int jret;
-			printf("Join the packet gen thread %llx\n",
+			tprintf("Join the packet gen thread %llx\n",
 				(unsigned long long)threads[i]);
 			jret = pthread_join(threads[i], NULL);
 			if (jret)
-				printf("jret failed %x\n", jret);
+				tprintf("jret failed %x\n", jret);
 		}
 	}
 	free(threads);

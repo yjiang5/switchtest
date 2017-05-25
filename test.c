@@ -1,8 +1,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-
+#include <stdarg.h>
+#include <pthread.h>
 #include "test.h"
+
+static pthread_mutex_t printf_mutex;
+int tprintf(const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+
+	pthread_mutex_lock(&printf_mutex);
+	vprintf(format, args);
+	pthread_mutex_unlock(&printf_mutex);
+
+	va_end(args);
+	return 0;
+}
 
 static struct test_config *tconfs = NULL;
 /* We hardcode everything now, we can make it configured through
@@ -52,6 +67,9 @@ struct test_config *init_configs()
 		if (!entry)
 			goto error;
 		rconf->entries = (struct request_entry *)entry;
+		/* Hardcode the config now */
+		rconf->entries[0].size = 1;
+		rconf->entries[0].duration = 100;
 	}
 
 	return confs;
@@ -62,6 +80,7 @@ error:
 
 int main()
 {
+	pthread_mutex_init(&printf_mutex, NULL);
 	tconfs = init_configs();
 	initRequests(2);
 	app_loop = gen_loop = 1;

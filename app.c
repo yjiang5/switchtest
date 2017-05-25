@@ -81,19 +81,19 @@ static void dumpResult(struct thread_param *result)
 {
 	int i;
 
-	printf("yield delay status \n");
-	printf("maxium yield is %lld max overflow %lld\n",
+	tprintf("yield delay status \n");
+	tprintf("maxium yield is %lld max overflow %lld\n",
 		result->yield->max, result->yield->of_max);
 	for (i=0; i< (YIELD_LOG_MAX>> 12); i++)
 		if (result->yield->logs[i])
-			printf("yield %x count %ld\n", i << 12, result->yield->logs[i]);
+			tprintf("yield %x count %ld\n", i << 12, result->yield->logs[i]);
 
-	printf("Total preempted %lx \n", result->preempted->logged);
-	printf("maxium preempted is %lld max overflow %lld\n",
+	tprintf("Total preempted %lx \n", result->preempted->logged);
+	tprintf("maxium preempted is %lld max overflow %lld\n",
 		result->preempted->max, result->preempted->of_max);
 	for (i=0; i< (PREEMPTION_LOG_MAX >> 12); i++)
 		if (result->preempted->logs[i])
-			printf("preempted %x count %ld\n", i << 12, result->preempted->logs[i]);
+			tprintf("preempted %x count %ld\n", i << 12, result->preempted->logs[i]);
 }
 
 static int num_apps_initiated = 0;
@@ -103,7 +103,7 @@ void dumpAppResults(void)
 
 	for (i = 0; i < num_apps_initiated; i++)
 	{
-		printf("\ndump result %x\n", i);
+		tprintf("\ndump result %x\n", i);
 		dumpResult(params[i]);
 	}
 }
@@ -179,14 +179,14 @@ int test(struct request *req, struct sched_stats *prempt,
 	ttime_t stsc, etsc, delta, deadline;
 	int oldstat;
 
-	while(waitReqReady(req, 0));
+	while(waitReqReady(req, 0) && app_loop);
 
 	oldstat = __sync_val_compare_and_swap(&req->status, reqs_sent,
 			reqs_wip);
 
 	if (oldstat != 	reqs_sent)
 	{
-		printf("initial status changed on the fly, anything wrong?? \n");
+		tprintf("initial status changed on the fly, anything wrong?? \n");
 		return -EFAULT;
 	}
 	
@@ -200,7 +200,7 @@ int test(struct request *req, struct sched_stats *prempt,
 
 		if (etsc < stsc)
 		{
-			printf("Hit time wrap, exit\n");
+			tprintf("Hit time wrap, exit\n");
 			return -EFAULT;
 		}
 		else {
@@ -216,7 +216,7 @@ int test(struct request *req, struct sched_stats *prempt,
 			reqs_done);
 	if (oldstat != 	reqs_wip)
 	{
-		printf("status changed on the guest fly, anything wrong?? \n");
+		tprintf("status changed on the guest fly, anything wrong?? \n");
 		return -EFAULT;
 	}
 
@@ -225,7 +225,7 @@ int test(struct request *req, struct sched_stats *prempt,
 	etsc = getNow();
 	if (etsc < stsc)
 	{
-		printf("Hit tscl wrap after yield\n");
+		tprintf("Hit tscl wrap after yield\n");
 	}
 	else {
 		delta = etsc - stsc;
@@ -235,7 +235,7 @@ int test(struct request *req, struct sched_stats *prempt,
 	return 0;
 }
 
-int app_loop;
+volatile int app_loop;
 
 void *app_thread(void *param)
 {
@@ -252,7 +252,7 @@ void *app_thread(void *param)
 		thread = pthread_self();
 		if (pthread_setaffinity_np(thread, sizeof(cpu_set_t), &mask))
 		{
-			printf("set affinity failed\n");
+			tprintf("set affinity failed\n");
 			return NULL;
 		}
 	}
@@ -260,7 +260,7 @@ void *app_thread(void *param)
 	while (app_loop) {
 		if (test(par->req, par->preempted, par->yield))
 		{
-			printf("Something wrong on the test, exit now!\n");
+			tprintf("Something wrong on the test, exit now!\n");
 			return NULL;
 		}
 	}
@@ -270,7 +270,8 @@ void *app_thread(void *param)
 /* XXX Hardcode now, can be configuration in future */
 static int getPCpu(int id)
 {
-	return id + 22;
+	//return id + 22;
+	return  22;
 }
 
 int init_dpdk_apps(int num_apps)
@@ -296,7 +297,7 @@ int init_dpdk_apps(int num_apps)
 
 		status = pthread_attr_init(&attr);
 		if (status != 0){
-			printf("error from pthread_attr_init for thread %d\n", i);
+			tprintf("error from pthread_attr_init for thread %d\n", i);
 			result = -ENOMEM;
 			break;
 		}
@@ -306,7 +307,7 @@ int init_dpdk_apps(int num_apps)
 				 2*sizeof(struct sched_stats));
 		if (!par )
 		{
-			printf("Failed to alloc thread param\n");
+			tprintf("Failed to alloc thread param\n");
 			result = -ENOMEM;
 			break;
 		}
@@ -327,13 +328,13 @@ int init_dpdk_apps(int num_apps)
 					   sizeof(ttime_t));
 		if (!par->yield->logs || !par->preempted->logs)
 		{
-			printf("Failed to alloc logs buffer\n");
+			tprintf("Failed to alloc logs buffer\n");
 			result = -ENOMEM;
 			break;
 		}
 		if (pthread_create(&threads[i], &attr, app_thread, par))
 		{
-			printf("Failed to craete the thread\n");
+			tprintf("Failed to craete the thread\n");
 			result = - ENOSYS;
 			break;
 		}
@@ -358,11 +359,11 @@ void wait_dpdk_done(void)
 		if (threads[i])
 		{
 			int jret;
-			printf("Join the app thread %llx\n",
+			tprintf("Join the app thread %llx\n",
 				(unsigned long long)threads[i]);
 			jret = pthread_join(threads[i], NULL);
 			if (jret)
-				printf("jret failed %x\n", jret);
+				tprintf("jret failed %x\n", jret);
 		}
 	}
 	free(threads);
