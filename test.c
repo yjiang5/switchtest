@@ -1,8 +1,12 @@
+#include <ctype.h>
+#include <limits.h>
+#include <pthread.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <stdarg.h>
-#include <pthread.h>
+#include <errno.h>
+
 #include "test.h"
 
 static pthread_mutex_t printf_mutex;
@@ -81,15 +85,54 @@ error:
 	return NULL;
 }
 
-int main()
+int main(int argc, char *argv[])
 {
+	int c;
+	/* By default, 2 seconds */
+	int duration = 2;
+
+	opterr = 0;
+
+	while ((c = getopt (argc, argv, "t:")) != -1)
+	{
+		switch (c)
+		{
+		case 't':
+		{
+			char *eptr;
+
+			errno = 0;
+			duration = strtol(optarg, &eptr, 0);
+			printf("duration is %d\n", duration);
+			if ((errno == ERANGE && (duration== LONG_MAX || duration== LONG_MIN))
+					|| (eptr && *eptr))
+			{
+				printf("Error value\n");
+				return -1;
+			}
+			break;
+		}
+		case '?':
+			if (optopt == 't')
+				printf("Option -t requires an duration argument.\n");
+			else if (isprint (optopt))
+				fprintf (stderr, "Unknown option `-%c'.\n", optopt);
+			else
+				fprintf (stderr,
+						"Unknown option character `\\x%x'.\n",
+						optopt);
+			return 1;
+		default:
+			abort();
+		}
+	}
 	pthread_mutex_init(&printf_mutex, NULL);
 	tconfs = init_configs();
 	initRequests(PKTG_NUM);
 	app_loop = gen_loop = 1;
 	init_dpdk_apps(tconfs->num_apps);
 	init_pktgens(tconfs->num_pktgens, tconfs->configs);
-	sleep(2);
+	sleep(duration);
 	app_loop = gen_loop = 0;
 	/* We stop the generator first */
 	wait_pktgen_done();
