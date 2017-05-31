@@ -93,7 +93,7 @@ struct request *getRequest(int number)
 
 static int dumpResult(struct request *req)
 {
-	tprintf("\nreq %d status %d\n", req->id, req->status);
+	tprintf("\nreq %d status %s\n", req->id, req_status_string[req->status]);
 	if (!req)
 		return -1;
 
