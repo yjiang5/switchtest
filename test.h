@@ -19,6 +19,8 @@ struct req_statstic {
 
 #define APPS_NUM	4
 #define PKTG_NUM	4
+
+#define PKTG_CONFIG_NUM	1
 /*
  * This represent one burst of packet sent out from the TG
  * Although we can simply specify the duration in total (i.e. one prameter

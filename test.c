@@ -66,7 +66,7 @@ struct test_config *init_configs()
 	{
 		struct request_config *rconf = &confs->configs[i];
 
-		rconf->entnum = 1;
+		rconf->entnum = PKTG_CONFIG_NUM;
 		entry = calloc(rconf->entnum, sizeof(struct request_entry));
 		if (!entry)
 			goto error;
