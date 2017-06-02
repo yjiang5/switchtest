@@ -212,8 +212,8 @@ int test(struct request *req, struct sched_stats *prempt,
 		}
 		req->done++;
 	}
-
 	req->etime = getNow();
+//	printf("req abort %x done %x size %x duration %x now %llx deadline %llx req deadline %llx rtime %llx\n", req->eabort, req->done, req->req.size, req->req.duration, getNow(), deadline, req->deadline, req->rtime);
 	oldstat = __sync_val_compare_and_swap(&req->status, reqs_wip,
 			reqs_done);
 	if (oldstat != 	reqs_wip)

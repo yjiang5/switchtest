@@ -117,8 +117,8 @@ static int dumpResult(struct request *req)
 	if (!req)
 		return -1;
 
-	tprintf("sent request in total %lld missed %lld\n", req->stats.t_reqs,
-		req->stats.t_missed);
+	tprintf("sent request in total %lld missed %lld aborted %lld\n", req->stats.t_reqs,
+		req->stats.t_missed, req->stats.t_aborted);
 
 	return 0;
 }
@@ -214,7 +214,7 @@ int sendRequest(int sync, int target, struct request_entry *rentry)
 			reqs_setup);
 	if (oldstat != reqs_initial)
 	{
-		tprintf("initial status changed on the fly to %d, anything wrong?? \n", oldstat);
+		tprintf("initial status changed on the fly to %s, anything wrong?? \n", req_status_string[oldstat]);
 		return -EFAULT;
 	}
 
