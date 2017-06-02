@@ -179,7 +179,7 @@ int test(struct request *req, struct sched_stats *prempt,
 	ttime_t stsc, etsc, delta, deadline;
 	int oldstat;
 
-	while(waitReqReady(req, 0) && app_loop);
+	while(app_loop && waitReqReady(req, 0));
 	if (!app_loop)
 		return 0;
 
