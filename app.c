@@ -272,8 +272,8 @@ void *app_thread(void *param)
 /* XXX Hardcode now, can be configuration in future */
 static int getPCpu(int id)
 {
-	//return id + 22;
-	return  22;
+	return id + 10;
+	//return  22;
 }
 
 int init_dpdk_apps(int num_apps)

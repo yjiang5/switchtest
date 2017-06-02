@@ -284,7 +284,7 @@ void *generator_thread(void *param)
 /* XXX Hardcode now, can be configuration in future */
 static int getPCpu(int id)
 {
-	return id + 28;
+	return id + 4;
 }
 
 static struct thread_param **params = NULL;
