@@ -223,10 +223,8 @@ int sendRequest(int sync, int target, struct request_entry *rentry)
 	req->eabort= 0;
         req->req.size = rentry->size;
         req->req.duration = rentry->duration;
-	/* XXX will htime before getNow() really make rtime/deadline
-	 * more accurate?
-	 */
-	htime = req->req.size * rentry->duration;
+	/* the 200 is the potential app's cost other than the execTask */
+	htime = req->req.size * (rentry->duration+200);
 	req->rtime = getNow();
 	req->deadline = req->rtime + htime;
 	oldstat = __sync_val_compare_and_swap(&req->status, reqs_setup, reqs_sent);

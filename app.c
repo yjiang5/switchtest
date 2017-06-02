@@ -222,6 +222,7 @@ int test(struct request *req, struct sched_stats *prempt,
 		return -EFAULT;
 	}
 
+
 	stsc = getNow();
 	yield_exec();
 	etsc = getNow();
@@ -370,7 +371,7 @@ void wait_dpdk_done(void)
 	}
 	free(threads);
 	threads = NULL;
-	num_apps_initiated = 0;
+	//num_apps_initiated = 0;
 }
 
 void free_dpdk_apps(void)
