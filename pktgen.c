@@ -42,6 +42,7 @@ int logRequest(struct request *req)
 
 	req->stats.t_reqs += req->req.size;
 	req->stats.t_missed += (req->req.size - req->done);
+	req->stats.t_aborted += req->eabort;
 	oldstat = __sync_val_compare_and_swap(&req->status, reqs_done, reqs_initial);
 	if (oldstat != reqs_done)
 	{
@@ -52,27 +53,46 @@ int logRequest(struct request *req)
 	return 0;
 }
 
+static inline void abort_request(struct request *req)
+{
+	req->eabort = 1;
+}
+
+static int hit_deadline(struct request *req)
+{
+	ttime_t now = getNow();
+
+	if (now > req->deadline)
+		return 1;
+	else
+		return 0;
+}
+
 /*
  * Wait till the queue is clear
  * sync:
  * 1: will wait till the consumer finished the previous record
  * 0: return falure if previous request is not finished yet
  */
-int waitReqFinish(struct request *req, int sync)
+static int waitReqFinish(struct request *req, int sync, int abort)
 {
 	if (!req)
 		return -EFAULT;
 
-	if (req->status == reqs_sent || req->status == reqs_setup)
+	if (req->status == reqs_setup)
 		return -EEXIST;
 
 	while (req->status == reqs_wip ||
 		req->status == reqs_sent ||
 		req->status == reqs_setup)
 	{
-		if (!sync)
+		if (!gen_loop)
+			return -EFAULT;
+		if (abort && hit_deadline(req))
+			abort_request(req);
+		else if (!sync)
 			return -EBUSY;
-	}	
+	}
 
 	/* logRequest will change the state to be reqs_initial */
 	if (req->status == reqs_done)
@@ -112,7 +132,7 @@ void dumpGenResults(void)
 		struct request *req = getRequest(i);
 		if (req)
 		{
-			waitReqFinish(req, 1);
+			waitReqFinish(req, 1, 0);
 			dumpResult(req);
 		}
 	}
@@ -185,7 +205,7 @@ int sendRequest(int sync, int target, struct request_entry *rentry)
 	if (req->status == reqs_setup)
 		return -EEXIST;
 
-	while (waitReqFinish(req, sync) && gen_loop) {}
+	while (gen_loop && waitReqFinish(req, 0, 1)) {}
 
 	if (!gen_loop)
 		return 0;
@@ -200,6 +220,7 @@ int sendRequest(int sync, int target, struct request_entry *rentry)
 
 	req->stime = req->etime = 0;
 	req->done = 0;
+	req->eabort= 0;
         req->req.size = rentry->size;
         req->req.duration = rentry->duration;
 	/* XXX will htime before getNow() really make rtime/deadline
@@ -249,13 +270,12 @@ void *generator_thread(void *param)
 	while (gen_loop) {
 		struct request_entry *entry;
 
+		entry = &config->entries[i];
+		sendRequest(0, par->id, entry);
+		while (gen_loop && waitReqFinish(req, 0, 1)){};
 		i++;
 		if (i == config->entnum)
 			i = 0;
-
-		entry = &config->entries[i];
-		sendRequest(0, par->id, entry);
-		waitReqFinish(req, 1);
 	}
 
 	return NULL;

@@ -13,6 +13,7 @@ extern char * req_status_string[];
 
 struct req_statstic {
 	unsigned long long t_reqs;
+	unsigned long long t_aborted;
 	unsigned long long t_missed;
 };
 
@@ -53,10 +54,11 @@ struct request {
 	 * that's memory barrier safe
 	 */
 	volatile int status;
+	int eabort;
 	/* request information */
 	struct request_entry req;
 	/* How many has been done */
-	int done;
+	volatile int done;
 	/* the time the request is sent out */
 	unsigned long long rtime;
 	/* the time the request is expected to finish

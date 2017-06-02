@@ -194,7 +194,7 @@ int test(struct request *req, struct sched_stats *prempt,
 	
 	req->stime = getNow();
 	deadline = getDeadline(req->stime, req);
-	while ((getNow() < deadline) && (req->done < req->req.size))
+	while ((getNow() < deadline) && (req->done < req->req.size) && !req->eabort)
 	{
 		stsc=getNow();
 		execTask(req->req.duration);
