@@ -5,12 +5,15 @@ SRCS := test.c \
 OBJS := ${SRCS:c=o} 
 PROGS := ${SRCS:.c=}
 
+DFLAGS := -g
+CFLAGS := ${DFLAGS} -lpthread -D_GNU_SOURCE   -Wall -Wno-nonnull 
+LDFLAGS := ${DFLAGS} -lrt -lpthread
 .PHONY: all
 all: test
 test : ${OBJS}
-	gcc -g ${OBJS} -lrt -lpthread -o $@
+	gcc ${LDFLAGS} ${OBJS} -o $@
 %.o: %.c
-	gcc -g -pthread -O2 -D_GNU_SOURCE   -Wall -Wno-nonnull -c $<
+	gcc ${CFLAGS} -c $<
 
 clean:
 	rm *.o
