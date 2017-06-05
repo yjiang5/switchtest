@@ -223,10 +223,8 @@ int sendRequest(int sync, int target, struct request_entry *rentry)
 	req->eabort= 0;
         req->req.size = rentry->size;
         req->req.duration = rentry->duration;
-	/* XXX will htime before getNow() really make rtime/deadline
-	 * more accurate?
-	 */
-	htime = req->req.size * rentry->duration;
+	/* the 200 is the potential app's cost other than the execTask */
+	htime = req->req.size * (rentry->duration+200);
 	req->rtime = getNow();
 	req->deadline = req->rtime + htime;
 	oldstat = __sync_val_compare_and_swap(&req->status, reqs_setup, reqs_sent);
@@ -260,7 +258,8 @@ void *generator_thread(void *param)
 		thread = pthread_self();
 		if (pthread_setaffinity_np(thread, sizeof(cpu_set_t), &mask))
 		{
-			tprintf("set affinity failed\n");
+			tprintf("set affinity failed \n"); 
+			tprintf("affinity failed from pktgen.c \n");
 			return NULL;
 		}
 	}
@@ -284,7 +283,7 @@ void *generator_thread(void *param)
 /* XXX Hardcode now, can be configuration in future */
 static int getPCpu(int id)
 {
-	return id + 4;
+	return id + 1;
 }
 
 static struct thread_param **params = NULL;
@@ -364,9 +363,10 @@ void wait_pktgen_done(void)
 				tprintf("jret failed %x\n", jret);
 		}
 	}
+
 	free(threads);
 	threads = NULL;
-	num_pktgens_initiated = 0;
+	//num_pktgens_initiated = 0;
 }
 
 void free_pktgens(void)
@@ -378,6 +378,6 @@ void free_pktgens(void)
 	{
 		for (i = 0; i < num_pktgens_initiated; i++)
 			free(params[i]);
-		free(params);
+		//free(params);
 	}
 }

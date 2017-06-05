@@ -222,6 +222,7 @@ int test(struct request *req, struct sched_stats *prempt,
 		return -EFAULT;
 	}
 
+
 	stsc = getNow();
 	yield_exec();
 	etsc = getNow();
@@ -254,7 +255,8 @@ void *app_thread(void *param)
 		thread = pthread_self();
 		if (pthread_setaffinity_np(thread, sizeof(cpu_set_t), &mask))
 		{
-			tprintf("set affinity failed\n");
+			tprintf("set affinity failed \n");
+			printf("set affinity failed from app.c %u \n", pcpu);
 			return NULL;
 		}
 	}
@@ -272,7 +274,7 @@ void *app_thread(void *param)
 /* XXX Hardcode now, can be configuration in future */
 static int getPCpu(int id)
 {
-	return id + 10;
+	return id + 1;
 	//return  22;
 }
 
@@ -370,7 +372,7 @@ void wait_dpdk_done(void)
 	}
 	free(threads);
 	threads = NULL;
-	num_apps_initiated = 0;
+	//num_apps_initiated = 0;
 }
 
 void free_dpdk_apps(void)
@@ -378,14 +380,14 @@ void free_dpdk_apps(void)
 	int i, num_apps = num_apps_initiated;
 	/* In case thread is not terminated yet */
 	wait_dpdk_done();
-	for (i = 0; i < num_apps; i++)
-		if (params[i]){
-			if (params[i]->preempted->logs)
-				free(params[i]->preempted->logs);
-			if (params[i]->yield->logs)
-				free(params[i]->yield->logs);
-			free(params[i]);
-		}
+	
 	if (params)
-		free(params);
+		for (i = 0; i < num_apps; i++)
+			if (params[i]){
+				if (params[i]->preempted->logs)
+					free(params[i]->preempted->logs);
+				if (params[i]->yield->logs)
+					free(params[i]->yield->logs);
+				free(params[i]);
+			}
 }
