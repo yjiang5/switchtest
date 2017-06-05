@@ -222,7 +222,6 @@ int test(struct request *req, struct sched_stats *prempt,
 		return -EFAULT;
 	}
 
-
 	stsc = getNow();
 	yield_exec();
 	etsc = getNow();
